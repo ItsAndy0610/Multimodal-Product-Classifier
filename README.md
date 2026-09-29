@@ -1,342 +1,147 @@
-# Best Buy Product Classification
+# 🛒 Multimodal Product Classifier
 
-This project focuses on classifying products from BestBuy.com into predefined categories based on the dataset provided. The main objective is to perform a product classification task. To do so, you'll have a list of products with their descriptions and images. In order to classify these products, you'll need to preprocess the data, extract features from images and text (embeddings), using pre-trained deep learning models, and then train machine learning models to predict the product category.
+> Classifying **BestBuy.com** products into categories by combining what they **look like** 🖼️ and what they **say** 📝.
 
-## Suggested Project Structure
+![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
+![TensorFlow](https://img.shields.io/badge/TensorFlow-2.10-FF6F00?logo=tensorflow&logoColor=white)
+![Hugging Face](https://img.shields.io/badge/🤗%20Transformers-4.44-FFD21E)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?logo=scikitlearn&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-19%20passing-brightgreen)
 
-1. **EDA and Image Downloading**
-2. **Generating Image Embeddings**
-3. **Generating Text Embeddings**
-4. **Preprocessing**
-5. **Training Classic ML Models**
-6. **Training MLP models**
+Every product has an **image** and a **text description**. This project turns both into embeddings with pre-trained deep learning models, then trains classic ML models and a multimodal neural network to predict the product category.
 
 ---
 
-## 1. EDA and Image Downloading
+## ✨ Highlights
 
-### Overview
+- 🖼️ **Image embeddings** with **ConvNeXtV2** (Hugging Face) or **ResNet / DenseNet / Inception** (Keras)
+- 📝 **Text embeddings** with **all-MiniLM-L6-v2** (Sentence Transformers), with optional OpenAI embeddings
+- 🌲 **Classic ML baselines**: Logistic Regression and Random Forest
+- 🧠 **Early-fusion MLP** that concatenates text and image features
+- 📊 **PCA / t-SNE** visualizations of the embedding space
+- ✅ **19 unit tests**, all passing
 
-The first step in this project is to get familiar with the `processed_products_with_images.csv` dataset, that is the dataset containing the products' information. You will also need to download the images from the URLs provided in the dataset.
+---
 
-The dataset contains the following structure:
-- `sku`: The product's unique identifier.
-- `name`: The product's name.
-- `description`: The product's description.
-- `image`: The URL of the product's image.
-- `type`: The product's type (e.g., HardGood, Software, etc.).
-- `price`: The product's price.
-- `shipping`: The product's shipping cost.
-- `manufacturer`: The product's manufacturer.
-- `class_id`: The product's class identifier.
-- `sub_class1_id`: The product's sub-class identifier.
-- `image_path`: The path where the image is stored.
+## 🏆 Results
 
-Optionally, you have a `categories.json` file that contains the hierarchical relationships between categories, and category ids. You can use this file to get more information about the categories and their relationships.
+### 🧠 MLP (early fusion)
 
-Your first task is to understand the dataset, setup the environment, load the data, and download the images. We suggest placing the images in a folder `data/images/`. The images are in a `.jpg` format in a `224x224` resolution. If you want to download the images in a different resolution, you can modify the `SHAPE` variable in the the ImageDownloader class
+| Model | 🎯 Accuracy | ⚖️ Macro F1 | Target (Acc / F1) |
+|---|:---:|:---:|:---:|
+| 🖼️ Image only | **0.823** | **0.746** | 0.75 / 0.70 ✅ |
+| 📝 Text only | **0.930** | **0.872** | 0.85 / 0.80 ✅ |
+| 🔀 Multimodal | **0.918** | **0.851** | 0.85 / 0.80 ✅ |
 
-```python
-# Load the data:
-CSV_PATH = 'data/processed_products.csv'
-df = pd.read_csv(CSV_PATH)
+### 🌲 Classic ML (accuracy / weighted F1)
 
-# Download the images and add the image paths to the dataframe:
-DIR='data/images/'
-SHAPE=(224, 224)
-OVERWRITE=False
-OUTPUT_CSV='data/processed_products_with_images.csv'
+| Features | Logistic Regression | Random Forest |
+|---|:---:|:---:|
+| 📝 Text | 0.901 / 0.899 | 0.907 / 0.903 |
+| 🖼️ Image | 0.792 / 0.792 | 0.802 / 0.794 |
+| 🔀 Text + Image | 0.894 / 0.894 | 0.899 / 0.893 |
 
-# Instantiate the ImageDownloader class
-image_downloader = ImageDownloader(image_dir=DIR, image_size=SHAPE, overwrite=OVERWRITE)
+> 💡 Text carries most of the signal. Images alone still reach ~82% accuracy.
 
-# Download images and get the updated DataFrame
-updated_df = image_downloader.download_images(df)
+---
 
-# Save the updated DataFrame
-updated_df.to_csv(CSV_PATH, index=False)
+## 🔄 How it works
+
+```mermaid
+flowchart LR
+    A[🛒 Products CSV] --> B[🖼️ Product images]
+    A --> C[📝 Descriptions]
+    B --> D[ConvNeXtV2<br/>768-dim embedding]
+    C --> E[MiniLM<br/>384-dim embedding]
+    D --> F[🔗 Merge by product]
+    E --> F
+    F --> G[🌲 Classic ML<br/>LogReg · Random Forest]
+    F --> H[🧠 Early-fusion MLP]
+    H --> I[📊 results/*.csv]
 ```
 
-### Instructions
-
-1. **Download the data and images**:
-
-   Place the preprocessed dataset in `data/processed_products_with_images.csv` if is not already there. Then [download the zip file containing the images](https://drive.google.com/file/d/14s2aDNTEWse86cWyLhvVIKmob6EbQrm_/view?usp=sharing), and extract the images to the folder `data/images/`.
-   
-   To ensure you've downloaded the images correctly and placed the data in the correct folder, you can run the section `1.1. Simple EDA` in the notebook.
-
-2.  **Explore the dataset**:
-
-    Explore the dataset to understand the structure of the data, the columns, and the information available. You can also explore the images to understand the quality and the content of the images. You can open an external notebook to explore the dataset structure and visualize some images.
-
----
-## 2. Generating Image Embeddings
-
-### Overview
-
-In this section, you'll generate embeddings of product images using a pre-trained computer vision model. The embeddings in the context of images are a numerical representation, like features, of the image content usually generated by a pre-trained deep learning model. In this case, you'll use a pre-trained model to generate embeddings for the images downloaded in the previous section.
-
-### Instructions
-
-1. **Select a Backbone Model**:
-
-   You can use [tensorflow.keras.applications](https://www.tensorflow.org/api_docs/python/tf/keras/applications) to see the models available in TensorFlow. You can explore with models such as ResNet, ConvNet, DenseNet, or InceptionV3.
-
-   You can also use the [transformers](https://huggingface.co/transformers/) library to use other models not available in TensorFlow. We suggest you to use ConvNextV2, ViT, CLIP, or Swin Transformer models. Remember to use the tensorflow version of the model, such as [tensorflow ViT](https://huggingface.co/docs/transformers/en/model_doc/vit#transformers.TFViTModel) or [tensorflow ConvNextV2](https://huggingface.co/docs/transformers/en/model_doc/convnextv2#transformers.TFConvNextV2Model).
-   
-   **You should at least implement [tensorflow ConvNextV2](https://huggingface.co/docs/transformers/en/model_doc/convnextv2#transformers.TFConvNextV2Model) from Hugging Face and `ResNet50` from [tensorflow.keras.applications](https://www.tensorflow.org/api_docs/python/tf/keras/applications).**
-
-2. **Implement a Backbone Model for Embedding Extraction**:
-   Once you've defined the model to use, you can load the model and use it to generate embeddings for the images downloaded in the previous section. Go to the file `src/vision_embeddings_tf.py` and implement in the class `FoundationalCVModel` the missing lines in order to load the pre-trained models.
-
-3. **Run and Save Embeddings**:
-   You'll also need to complete the function `load_and_preprocess_image` to load and preprocess the images before passing them to the model.
-
-3. **Run and Save Embeddings**:
-   Go to the notebook to the section `2.1. Image Embeddings` and run the code to generate the embeddings for the images and save them for further use.
-
-4. **Output**:
-   The function will create a file `Embeddings_{model_name}.csv` containing the image name and the embeddings for each image in the dataset in the defined directory (e.g. `Embeddings/`). The embeddings are represented as `n` columns, where `n` is the size of the embedding vector.
+1. **📥 Data**: ~50k products, each with an image and a description.
+2. **🖼️ Image embeddings**: a frozen vision backbone plus pooling turns each image into a vector.
+3. **📝 Text embeddings**: MiniLM with mean pooling over tokens turns each description into a vector.
+4. **🔗 Merge**: text and image features are joined by product (`text_*` and `image_*` columns).
+5. **🌲 Classic ML**: sklearn baselines on text only, image only, and both combined.
+6. **🧠 MLP**: Dense → BatchNorm → Dropout blocks, trained with class weights, Adam and early stopping.
 
 ---
 
-## 3. Generating Text Embeddings
+## 📁 Project structure
 
-### Overview
-
-In this section, you'll generate embeddings for product descriptions using a pre-trained language model. The embeddings in the context of text are a numerical representation with a lower dimensionality than the original text dimension, but keeping the semantic information of the text. In this case, you'll use a pre-trained language model to generate embeddings for the product descriptions.
-
-
-### Instructions
-
-1. **Choose a Model**:
-   1. In this case you have 2 options, 1. Choose a pre-trained open-source model from the [transformers](https://huggingface.co/transformers/pretrained_models.html) library, such as MiniLM, BERT, RoBERTa, or DistilBERT.
-   
-   2. Optionally you can use a proprietary model, and access it trough an API such as the OpenAI API. You have 5 dollars to use Open AI api once you create an account. For embedding models, that should be enough to generate the embeddings for the dataset.
-
-2. **Implement the model and embedding extraction methods**:
-   Once you defined the model to use go to `src/nlp_models.py` and implement the missing lines in the class `HuggingFaceEmbeddings` to load the pre-trained model and tokenizer in the constructor. Then go to the `get_embedding` and `get_embeddings_df` methods and implement the missing lines to generate the embeddings for the product descriptions and store them in a DataFrame.
-
-   Optionally, if you choose to use the OpenAI API, you can implement the class `GPT` in the file `src/nlp_models.py` and implement the missing lines in the `get_embedding` and `get_embeddings_df` methods to generate the embeddings using the OpenAI API.
-
-   **The class should work at least for `sentence-transformers/all-MiniLM-L6-v2` from Hugging Face, but you can implement other models if you want such as BERT.**
-
-3. **Run and Save Embeddings**:
-   Go to the notebook to the section `2.2. Text Embeddings` and run the code to generate the embeddings for the product descriptions and save them for further use.
-
-4. **Output**:
-   The function will create a file with the defined name `file` (e.g., `text_embeddings_bert.csv`) containing the product metadata and the embeddings for each text description in the dataset. The dataset will be stored in the directory `directory` (e.g., `Embeddings/`). The embeddings are represented as a list in a **single column** in the dataframe, with the name `embeddings`. **Don't convert the text embeddings into multiple columns in the dataframe, leave it as a list, since the conversion will be done in the next step.**
-
----
-## 4. Preprocessing
-
-### Overview
-
-In this section, you'll preprocess the embeddings generated in the previous sections to prepare them for training the machine learning models. The preprocessing steps include merging the embeddings into a single dataset, storing that dataset, splitting it into training and testing sets, and identifying the image columns, text columns and label column.
-
-### Instructions
-
-1. **Merge the Embeddings**:
-   Load the embeddings generated in the previous sections and merge them into a single dataset. To do so go to the notebook and run the section `2.3. Merge Embeddings` to merge the embeddings into a single dataset.
-
-   The function will create a dataframe with the embeddings from both the text and image data. The dataframe will contain the text and image IDs, the product category, as well as the metadata for the product, and `n` + `m` new extra columns with the embeddings, where `n` is the size of the text embeddings and `m` is the size of the image embeddings. The new embedding columns will be named `text_0`, `text_1`, ..., `text_n`, `image_0`, `image_1`, ..., `image_m`.
-
-2. **Split the Dataset and Identify the Text and Image Columns**:
-   Then split the dataset into training and testing sets, and extract the embeddings from the text and image columns. To do so go to the file `src\utils.py`, and go to the function `train_test_split_and_feature_extraction` and implement the missing lines to split the dataset into training and testing sets, and extract the columns that contain the embeddings of the text and image data, and the label column.
-
-4. **Output**:
-   The function will return the training and testing sets, the text and image columns, and the label column.
-
+```
+📦 Multimodal-Product-Classifier
+├── 📓 AnyoneAI - Sprint Project 04.ipynb   # main notebook (end-to-end run, with outputs)
+├── 📓 preprocessing(optional).ipynb        # optional data preparation
+├── 📂 src/
+│   ├── 🖼️ vision_embeddings_tf.py   # image loading + foundational CV models
+│   ├── 📝 nlp_models.py             # Hugging Face & OpenAI text embeddings
+│   ├── 🧰 utils.py                  # merging, image download, train/test split
+│   ├── 🌲 classifiers_classic_ml.py # PCA/t-SNE plots + sklearn models
+│   └── 🧠 classifiers_mlp.py        # Keras dataset, early-fusion MLP, training
+├── 🧪 tests/                         # pytest suite
+├── 📊 results/                       # test-set predictions for each MLP
+├── 🐳 Dockerfile
+└── 📋 requirements*.txt
+```
 
 ---
 
-## 5. Training Classic ML Models 
+## 🚀 Getting started
 
-### Overview
+### 1️⃣ Install
 
-In this section, you'll train and evaluate classic machine learning models using the image and text embeddings extracted in the previous sections. The goal is to generate image only, text only, and combined embedding models to predict the product category. You'll be using classic machine learning models such as SVM, Random Forest, or Logistic Regression to train and evaluate the embeddings' performance. You'll use the sklearn library to train and evaluate the models.
-
-### Instructions
-
-1. **Implement the ML models and Embedding visualization**:
-   Go to the file `src/classifiers_classic_ml.py` and implement the missing lines in the function `visualize_embeddings` to implement at least PCA visualization of the embeddings for 2D and 3D plots. Then go to the function `train_and_evaluate_model` and implement the missing lines to instantiate and train the classic machine learning models from the sklearn library.
-
-   **You should at least implement the following models: `RandomForest`, and `LogisticRegression`.**
-
-2. **Run Image only, Text only, and Combined Embedding Models**:
-   Go to the notebook to the section `3.2 Classical ML model Training` and run the code to run and evaluate the classic machine learning models using the image only, text only, and combined embeddings.
-
----
-
-## 6. Training MLP Models
-
-### Overview
-
-In this section, you'll train and evaluate MLP models using the image and text embeddings extracted in the previous sections. The goal is to generate image only, text only, and combined embedding models to predict the product category. You'll be using deep learning models such as MLP that you'll create using the TensorFlow library to train and evaluate the embeddings' performance.
-
-
-### Instructions
-
-1. **Implement the dataloader**:
-   Go to the file `src/classifiers_mlp.py` and implement the missing lines in the class `MultimodalDataset` to create a dataset that will be used to train the MLP models. We'll be using a `LabelEncoder` from sklearn to encode the labels.
-
-2. **Implement the MLP models**:
-   Go to the file `src/classifiers_mlp.py` and go to the function `create_early_fusion_model` and implement the missing lines to create the MLP model that will use the combined embeddings. Make sure the model works for single modality and multimodal inputs. Add normalization layers, dropout layers, and any other layers you think are necessary.
-
-   Once you have the model's function implemented, go to the function `train_mlp` and implement the missing lines to define the model loss, optimizer, early stopping, and train the model.
-
-3. **Train and Evaluate Models**:
-   Go to the notebook to the section `3.3 Multi-layer Perceptron` and run the code to train and evaluate the MLP models using the image only, text only, and combined embeddings.
-
-4. **Output**:
-   Once you train each model, it will generate a classification report and a confusion matrix to evaluate the model's performance. It will also generate a folder `results` with the files `results/multimodal_results.csv`, `results/image_results.csv`, or `results/text_results.csv` containing the results of your model on the test set. Those files are necessary for the final evaluation, so don't remove, rename, or change them.
-
-   **You must achieve at least 85% accuracy and 80% F1-score for the multimodal model, an accuracy of at least 85% and an F1-score of at least 80% for the text model, and an accuracy of at least 75% and an F1-score of at least 70% for the image model.**
-
----
-
-## Installation
-
-To set up the project, follow these steps:
-
-1. Clone the repository:
-   ```bash
-   git clone REPO
-   ```
-2. Install the required packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. If you are on a Mac, you can use your GPU by running:
-   ```bash
-   pip install -r requirements_mac.txt
-   ```
-You can also use the docker file by running in the working directory:
-
-1. Build the container:
-   ```bash
-   docker build -t anyoneai-project .
-   ``
-2. Run the container:
-   ```bash
-   docker run -p 8888:8888 -v $(pwd):/app anyoneai-project
-   ```
-3. Then open in your browser the link with the token that appears in your console
-   ```bash
-   http://127.0.0.1:8888/tree?token=your_token
-   ```
-
-For Mac users with M-based chips, the docker will run in the CPU. If you want to run in the GPU, you can create a local environment using Python 3.9.6, update pip to the version 21.2.3 using conda or a venv, and install the requirements_mac.txt file.
-
----
-
-## Running the Project
-
-You can run the project by launching a Jupyter notebook:
+**🐳 Docker**
 
 ```bash
-jupyter notebook
+docker build -t multimodal-classifier .
+docker run -p 8888:8888 -v $(pwd):/app multimodal-classifier
 ```
 
----
-
-## Code Style
-
-We recommend using [Black](https://black.readthedocs.io/) for Python code formatting. To format the code:
+**🐍 pip** (Linux / CPU)
 
 ```bash
-black --line-length=88 .
+pip install -r requirements.txt
 ```
 
----
-
-## Testing
-
-To ensure everything works as expected, run the provided unit tests:
+**🍎 macOS (Apple Silicon)**
 
 ```bash
-pytest tests/
+pip install -r requirements_mac.txt
 ```
 
-or to run the tests without showing warnings:
+**🪟 Windows + NVIDIA GPU**: see [the GPU guide below](#-windows--nvidia-gpu).
+
+### 2️⃣ Get the data
+
+The dataset and images are **not** in the repo because they are too large.
+
+1. Place `processed_products_with_images.csv` in `data/`.
+2. [Download the images](https://drive.google.com/file/d/14s2aDNTEWse86cWyLhvVIKmob6EbQrm_/view?usp=sharing) and extract them to `data/images/`.
+
+### 3️⃣ Run
+
+Open the notebook and run it from top to bottom:
+
+```bash
+jupyter notebook "AnyoneAI - Sprint Project 04.ipynb"
+```
+
+⏱️ On a GTX 1060, image embeddings take about 20–50 min, text embeddings about 10 min, and each MLP a few minutes.
+
+### 4️⃣ Test
 
 ```bash
 pytest tests/ --disable-warnings
 ```
 
-If you are using Docker, you can test the project by:
-
-1. With the container running. In a different terminal, access the console and check the id:
-   ```bash
-   docker ps
-   ```
-    Look for the ID:
-    ```
-    CONTAINER ID   IMAGE              COMMAND                  CREATED          STATUS          PORTS                    
-    container_id   anyoneai-project   "jupyter notebook --…"   12 minutes ago   Up 12 minutes   0.0.0.0:8888->8888/tcp   
-    ```
-2. Access to the console:
-    ```bash
-    docker exec -it <container_id> /bin/bash
-    ```
-3. Run the test
-    ```bash
-    pytest tests/
-    ```
-    or
-    ```bash
-    pytest tests/ --disable-warnings
-    ```
-4. If everything is correct, you'll see something like this:
-   ```bash
-    =========================================== test session starts ===========================================
-    platform linux -- Python 3.9.6, pytest-8.3.3, pluggy-1.5.0
-    rootdir: /app
-    plugins: anyio-4.4.0
-    collected 21 items                                                                                                                                                                                         
-    
-    tests/test_models.py .....................                           [100%]
-    
-    ================================ 21 passed, 6 warnings in 114.64s (0:01:54) ================================
-   ```
-
-# Submission
-
-To submit the project, you need to provide the files in the following folders in a zip file:
-- src/
-- tests/
-- results/
-- README.md
-
-**The files in the `data/` and `Embeddings/` folders are not necessary, since they are too large. Please don't include those files in the zip file.**
-
 ---
 
-# Results
+## 🪟 Windows + NVIDIA GPU
 
-Embeddings: `facebook/convnextv2-tiny-22k-224` (images, 768 dims) and `sentence-transformers/all-MiniLM-L6-v2` (text, 384 dims). Test split: 30%.
-
-**MLP (early fusion)** — files in `results/`:
-
-| Model      | Accuracy | Macro F1 | Required (Acc / F1) |
-|------------|----------|----------|---------------------|
-| Image      | 0.823    | 0.746    | 0.75 / 0.70         |
-| Text       | 0.930    | 0.872    | 0.85 / 0.80         |
-| Multimodal | 0.918    | 0.851    | 0.85 / 0.80         |
-
-**Classic ML** (accuracy / weighted F1):
-
-| Features     | Logistic Regression | Random Forest |
-|--------------|---------------------|---------------|
-| Text         | 0.901 / 0.899       | 0.907 / 0.903 |
-| Image        | 0.792 / 0.792       | 0.802 / 0.794 |
-| Text + Image | 0.894 / 0.894       | 0.899 / 0.893 |
-
-All 19 tests pass (`pytest tests/`).
-
-## Running on Windows with an NVIDIA GPU
-
-TensorFlow 2.10 is the last version with native GPU support on Windows, so use Python 3.10:
+TensorFlow **2.10** is the last version with native GPU support on Windows, so use **Python 3.10**:
 
 ```bash
 py -3.10 -m venv .venv
@@ -344,7 +149,7 @@ py -3.10 -m venv .venv
 pip install -r requirements_windows_gpu.txt
 ```
 
-The CUDA 11 / cuDNN 8 runtime comes from the `nvidia-*-cu11` pip packages. TensorFlow finds those DLLs only if their `bin` folders are on `PATH`. It also needs `ptxas.exe` (from `nvidia-cuda-nvcc-cu11`); without it the process crashes on the first GPU forward pass. One way to set this up is to add a `sitecustomize.py` to the venv's `site-packages`:
+The CUDA 11 / cuDNN 8 runtime comes from the `nvidia-*-cu11` pip packages. TensorFlow finds those DLLs only if their `bin` folders are on `PATH`. It also needs `ptxas.exe`: without it, the process **crashes on the first GPU forward pass** 💥. To fix both, add this `sitecustomize.py` to the venv's `site-packages`:
 
 ```python
 import os, glob
@@ -356,4 +161,28 @@ for _d in _dirs:
 os.environ.setdefault("XLA_FLAGS", "--xla_gpu_cuda_data_dir=" + os.path.join(_nvidia, "cuda_nvcc").replace("\\", "/"))
 ```
 
-The `data/` and `Embeddings/` folders are not versioned (they are too large). Download the dataset and images as described in section 1.
+✅ To check that TensorFlow sees the GPU:
+
+```bash
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+```
+
+> ⚠️ If Windows **Smart App Control** is enabled, it may block the TensorFlow / PyTorch DLLs.
+
+---
+
+## 🧩 Supported backbones
+
+| Type | Models |
+|---|---|
+| 🖼️ Keras | `resnet50`, `resnet101`, `densenet121`, `densenet169`, `inception_v3` |
+| 🤗 Transformers | `convnextv2_tiny` / `base` / `large`, `swin_tiny` / `small` / `base`, `vit_base` / `large` |
+| 📝 Text | any Hugging Face encoder (default `sentence-transformers/all-MiniLM-L6-v2`), OpenAI `text-embedding-3-small` |
+
+---
+
+## 🙏 Acknowledgements
+
+- 🎓 Built as a sprint project for the **AnyoneAI – Data Science & ML Developer Career**.
+- 🛒 Product data from **BestBuy.com** (see `data/Raw/LICENSE`).
+- 🤗 Pre-trained models from **Hugging Face** and **Keras Applications**.
